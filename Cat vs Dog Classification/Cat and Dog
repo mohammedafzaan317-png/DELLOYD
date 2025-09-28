@@ -1,0 +1,87 @@
+import torch
+import torchvision.models as models
+from torchvision import transforms
+from PIL import Image
+import os
+from reportlab.lib.pagesizes import A4
+from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer
+from reportlab.lib.styles import getSampleStyleSheet
+
+device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
+model = models.resnet50(weights=models.ResNet50_Weights.IMAGENET1K_V2)
+model = model.to(device).eval()
+
+with open("imagenet_classes.txt", "r") as f:
+    categories = [s.strip() for s in f.readlines()]
+
+transform = transforms.Compose([
+    transforms.Resize(256),
+    transforms.CenterCrop(224),
+    transforms.ToTensor(),
+    transforms.Normalize(
+        mean=[0.485, 0.456, 0.406],
+        std=[0.229, 0.224, 0.225]
+    ),
+])
+
+def predict_image(img_path):
+    img = Image.open(img_path).convert("RGB")
+    x = transform(img).unsqueeze(0).to(device)
+    with torch.no_grad():
+        out = model(x)
+    probs = torch.nn.functional.softmax(out[0], dim=0)
+    top_prob, top_id = torch.topk(probs, 5)
+    return [(categories[i], float(top_prob[j])) for j, i in enumerate(top_id)], out.argmax(dim=1).item()
+
+dog_folder = "images"  # adjust if needed
+misclassified_dogs, predicted_cats = [], []
+
+for fname in os.listdir(dog_folder):
+    if not fname.lower().endswith((".jpg", ".jpeg", ".png")):
+        continue
+
+    img_path = os.path.join(dog_folder, fname)
+    preds, top_idx = predict_image(img_path)
+    top_label = preds[0][0]
+
+    if 151 <= top_idx <= 268:
+        print(f"🐶 {fname}  -->  predicted as dog: {top_label}")
+    elif 281 <= top_idx <= 285:
+        print(f"🐱 {fname}  -->  predicted as cat: {top_label}")
+        predicted_cats.append((fname, preds))
+    else:
+        print(f"❌ {fname}  -->  predicted as {top_label}")
+        misclassified_dogs.append((fname, preds))
+
+# --------- Create the PDF report ---------
+report_name = "dog_classification_report.pdf"
+styles = getSampleStyleSheet()
+doc = SimpleDocTemplate(report_name, pagesize=A4)
+story = []
+
+story.append(Paragraph("<b>Dog Image Classification Report</b>", styles['Title']))
+story.append(Spacer(1, 12))
+
+total_images = len([f for f in os.listdir(dog_folder)
+                    if f.lower().endswith(('.jpg', '.jpeg', '.png'))])
+story.append(Paragraph(f"Total dog images checked: {total_images}", styles['Normal']))
+story.append(Paragraph(f"Predicted as cats: {len(predicted_cats)}", styles['Normal']))
+story.append(Paragraph(f"Other misclassifications: {len(misclassified_dogs)}", styles['Normal']))
+story.append(Spacer(1, 12))
+
+if predicted_cats:
+    story.append(Paragraph("<b>Images Predicted as Cats</b>", styles['Heading2']))
+    for fname, preds in predicted_cats:
+        p = f"{fname}: {preds[0][0]} ({preds[0][1]*100:.2f}%)"
+        story.append(Paragraph(p, styles['Normal']))
+    story.append(Spacer(1, 12))
+
+if misclassified_dogs:
+    story.append(Paragraph("<b>Other Misclassifications</b>", styles['Heading2']))
+    for fname, preds in misclassified_dogs:
+        p = f"{fname}: {preds[0][0]} ({preds[0][1]*100:.2f}%)"
+        story.append(Paragraph(p, styles['Normal']))
+    story.append(Spacer(1, 12))
+
+doc.build(story)
+print(f"\nPDF report saved as: {report_name}")
