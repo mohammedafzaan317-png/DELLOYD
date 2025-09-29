@@ -39,7 +39,7 @@ def main():
 
     # Sort numerically by the number in the car ID
     sorted_cars = sorted(common_cars, key=car_sort_key)
-    
+
     print(f"Found {len(sorted_cars)} paired cars.\n")
 
     results = []
@@ -47,23 +47,26 @@ def main():
         front_label = FRONT_DIR / f"{car}.txt"
         rear_label  = REAR_DIR  / f"{car}.txt"
 
-        status = "BROKEN" if (is_broken(front_label) or is_broken(rear_label)) else "OK"
-        results.append((car, status))
+        front_status = "BROKEN ❌" if is_broken(front_label) else "OK ✅"
+        rear_status  = "BROKEN ❌" if is_broken(rear_label) else "OK ✅"
+
+        results.append((car, front_status, rear_status))
 
     print("=== License Plate Status ===")
-    for car, status in results:
-        print(f"{car}: {status}")
+    for car, front_status, rear_status in results:
+        print(f"{car}: FRONT {front_status}, REAR {rear_status}")
 
     # Save a CSV summary
     out_file = Path("license_plate_status.csv")
     with out_file.open("w") as f:
-        f.write("car,status\n")
-        for car, status in results:
-            f.write(f"{car},{status}\n")
+        f.write("car,front_status,rear_status\n")
+        for car, front_status, rear_status in results:
+            # Remove emojis for CSV
+            front_clean = front_status.replace(" ✅", "").replace(" ❌", "")
+            rear_clean  = rear_status.replace(" ✅", "").replace(" ❌", "")
+            f.write(f"{car},{front_clean},{rear_clean}\n")
 
-    print(f"\nResults saved to {out_file.resolve()}")
+    print(f"\n✅ Results saved to {out_file.resolve()}")
 
 if __name__ == "__main__":
     main()
-
-
